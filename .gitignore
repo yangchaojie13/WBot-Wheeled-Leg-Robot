@@ -1,0 +1,15 @@
+# ROS 2 编译缓存
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+
+# C++ 和 系统缓存
+*.o
+*.so
+*.os
+*.a
+.vscode/
+.DS_Store
+
+# MATLAB 缓存
+*.asv
