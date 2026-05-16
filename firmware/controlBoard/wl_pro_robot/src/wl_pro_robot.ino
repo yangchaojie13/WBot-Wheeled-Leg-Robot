@@ -129,7 +129,7 @@ float KD_POS = 0.5;
 float OUTER_KP = 0.3;              // 外环比例增益
 float OUTER_KD = 0.3;  // 外环微分增益,起始值
 float OUTER_MAX_V = 0.3;          // 外环输出速度限幅(m/s)
-const float OUTER_DEAD_ZONE = 0.05;  // 外环死区(米),小偏差不响应
+const float OUTER_DEAD_ZONE = 0.01;  // 外环死区(米),小偏差不响应
 
 float outer_target_v = 0.0;        // 外环输出
 float effective_target_v = 0.0;    // 内环实际跟踪的速度
@@ -479,13 +479,13 @@ void update_state_machine() {
     switch (current_state) {
         case STATE_IDLE:
             // IDLE → 检测到速度指令 → TRANSITION → DRIVE
-            if (abs(target_v) > 0.02) {
+            /* if (abs(target_v) > 0.02) {
                 // 立即响应,无防抖
                 int_dx_at_transition_start = int_dx;
                 transition_target_state = STATE_DRIVE;
                 transition_start_time = now_ms;
                 current_state = STATE_TRANSITION;
-            }
+            } */
             break;
         
         case STATE_DRIVE:
@@ -638,6 +638,9 @@ void loop() {
                     int_dx = 0.0;
                     target_x = actual_x;
                 } else {
+                    // 🐰 虚拟兔子:target_x 以 target_v 速度匀速爬
+                    target_x += target_v * dt;
+
                     // 内环逻辑:和 DRIVE 完全一样,只是 target_v 来源不同
                     effective_target_v = outer_target_v;
                     float idle_v_error = fused_vel - effective_target_v;
@@ -675,7 +678,10 @@ void loop() {
                 // float trans_v_error = fused_vel - effective_target_v;
                 // int_dx += (0.0 - trans_v_error) * dt;
 
-                int_dx = int_dx_at_transition_start * (1.0 - transition_progress);
+                float trans_v_error = fused_vel - effective_target_v;
+                int_dx += trans_v_error * dt;
+
+                //int_dx = int_dx_at_transition_start * (1.0 - transition_progress);
             }
             
             // 3. 统一限幅
