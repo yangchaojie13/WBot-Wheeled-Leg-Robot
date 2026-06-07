@@ -126,8 +126,8 @@ float transition_progress = 0.0;  // 0-1,只在 TRANSITION 中有意义
 float KD_POS = 0.5;
 
 // 👑 阶段 5:级联外环(位置 → 速度)
-float OUTER_KP = 0.3;              // 外环比例增益
-float OUTER_KD = 0.3;  // 外环微分增益,起始值
+float OUTER_KP = 1.0;              // 外环比例增益
+float OUTER_KD = 0.6;  // 外环微分增益,起始值
 float OUTER_MAX_V = 0.3;          // 外环输出速度限幅(m/s)
 const float OUTER_DEAD_ZONE = 0.01;  // 外环死区(米),小偏差不响应
 
@@ -447,25 +447,20 @@ void setup() {
 // 职责:根据位置误差,算出目标速度
 // ====================================================================
 void update_outer_loop() {
-    if (current_state == STATE_IDLE) {
-        float pos_error = target_x - actual_x;
-        
-        if (abs(pos_error) < OUTER_DEAD_ZONE) {
-            outer_target_v = 0.0;
-            return;
-        }
-        
-        // PD 外环
-        float p_term = OUTER_KP * pos_error;
-        float d_term = -OUTER_KD * fused_vel;  // 注意负号
-        outer_target_v = p_term + d_term;
-        
-        if (outer_target_v > OUTER_MAX_V) outer_target_v = OUTER_MAX_V;
-        if (outer_target_v < -OUTER_MAX_V) outer_target_v = -OUTER_MAX_V;
+    if (current_state != STATE_IDLE) { outer_target_v = 0.0; return; }
+
+    bool moving = abs(target_v) > 0.02;
+    float pos_error = target_x - actual_x;
+
+    if (!moving) {
+        if (abs(pos_error) < OUTER_DEAD_ZONE) { outer_target_v = 0.0; return; }
+        outer_target_v = OUTER_KP * pos_error - OUTER_KD * fused_vel;
+    } else {
+        outer_target_v = OUTER_KP * pos_error + OUTER_KD * (target_v - fused_vel);
     }
-    else {
-        outer_target_v = 0.0;
-    }
+
+    if (outer_target_v >  OUTER_MAX_V) outer_target_v =  OUTER_MAX_V;
+    if (outer_target_v < -OUTER_MAX_V) outer_target_v = -OUTER_MAX_V;
 }
 
 // ====================================================================
@@ -638,6 +633,13 @@ void loop() {
                     int_dx = 0.0;
                     target_x = actual_x;
                 } else {
+                    // 在 IDLE 分支,虚拟兔子那段之前
+                    static float last_target_v = 0.0;
+                    if (abs(target_v) < 0.02 && abs(last_target_v) >= 0.02) {
+                        target_x = actual_x;   // 刚停下,就地锚定,不追过冲
+                    }
+                    last_target_v = target_v;
+
                     // 🐰 虚拟兔子:target_x 以 target_v 速度匀速爬
                     target_x += target_v * dt;
 
@@ -645,8 +647,10 @@ void loop() {
                     effective_target_v = outer_target_v;
                     float idle_v_error = fused_vel - effective_target_v;
                     int_dx += (0.0 - idle_v_error) * dt;
+                    int_dx *= 0.999;   // 防永久饱和
                 }
-            }
+            }          
+            // 【未启用】保留速度环状态机框架,当前 demo 走纯位置环(C 方案),见下方说明
             else if (current_state == STATE_DRIVE) {
                 // DRIVE: 速度积分,跟踪端侧 target_v
                 target_x = actual_x;  // 跟随,不留位置目标
